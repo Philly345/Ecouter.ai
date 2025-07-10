@@ -3,7 +3,7 @@ from flask import Flask, jsonify, send_from_directory, current_app, request
 from flask_cors import CORS
 from flask_login import LoginManager, login_required, current_user
 from flask_mail import Mail, Message
-from flask_migrate import Migrate  # ✅ Added
+from flask_migrate import Migrate
 from dotenv import load_dotenv
 import openai
 
@@ -12,7 +12,7 @@ load_dotenv()
 
 # === Import extensions ===
 from extensions import db, login_manager, oauth, register_oauth_clients
-from models import User  # Only import User here (NOT Transcript)
+from models import User
 
 # === Initialize Flask app ===
 app = Flask(__name__, instance_relative_config=True)
@@ -50,7 +50,7 @@ db.init_app(app)
 login_manager.init_app(app)
 oauth.init_app(app)
 register_oauth_clients(app)
-migrate = Migrate(app, db)  # ✅ Flask-Migrate initialized
+migrate = Migrate(app, db)
 
 # === Enable CORS ===
 CORS(app, origins=["http://localhost:3000"], supports_credentials=True)
@@ -125,11 +125,11 @@ def debug_session():
         "user_id": current_user.get_id()
     })
 
-# === Delete Transcript (duplicate-safe) ===
+# === Delete Transcript ===
 @app.route('/api/delete/<int:transcript_id>', methods=['DELETE'])
 @login_required
 def delete_transcript(transcript_id):
-    from models import Transcript  # Lazy import to avoid circular import
+    from models import Transcript
     transcript = Transcript.query.filter_by(id=transcript_id, user_id=current_user.id).first()
     if not transcript:
         return jsonify({'error': 'Transcript not found'}), 404
@@ -138,7 +138,7 @@ def delete_transcript(transcript_id):
     db.session.commit()
     return jsonify({'message': 'Transcript deleted successfully'}), 200
 
-# === Notify user via email when transcript is ready ===
+# === Notify when transcript is ready ===
 @app.route('/api/notify_transcription_ready/<int:transcript_id>', methods=['POST'])
 @login_required
 def notify_transcription_ready(transcript_id):
@@ -190,11 +190,11 @@ def support_chat():
             "reply": "Assistant is currently unavailable. Please email support."
         }), 200
 
-# === Root API check ===
+# === Root route ===
 @app.route('/')
 def home():
     return jsonify({"message": "Écouter backend is running."})
 
-# === Run App ===
+# === Run App for Render ===
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=10000)
