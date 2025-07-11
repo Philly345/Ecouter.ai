@@ -1,10 +1,11 @@
-from flask import Blueprint, request, jsonify, redirect, url_for, session
+import os
+import uuid
+import secrets
+from flask import Blueprint, request, jsonify, redirect, url_for, session, current_app
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash
 from extensions import oauth, db
 from models import User
-import uuid
-import secrets
 
 # Email verification utilities
 from routes.email import generate_confirmation_token, send_verification_email
@@ -59,6 +60,7 @@ def google_callback():
         token = oauth.google.authorize_access_token()
         resp = oauth.google.get('https://openidconnect.googleapis.com/v1/userinfo')
         user_info = resp.json()
+        print("🔍 Google user info:", user_info)
     except Exception as e:
         return jsonify({'error': f'Google login failed: {str(e)}'}), 400
 
@@ -92,10 +94,18 @@ def google_callback():
         session['first_login'] = False
 
     login_user(user)
-    return redirect('http://localhost:3000/post-login')
+
+    # ✅ Use production-safe redirect from environment
+    frontend_url = os.getenv('FRONTEND_URL', 'https://ecouter.systems')
+    
+    # 🔍 Debug print to Render logs
+    print("🔁 FRONTEND_URL in callback:", frontend_url)
+    print("🧪 All ENV Vars:", dict(os.environ))  # optional full env dump
+
+    return redirect(f'{frontend_url}/post-login')
 
 
-# === Session Info (used by frontend PostLogin.js) ===
+# === Session Info (used by PostLogin.js) ===
 @auth_bp.route('/api/session')
 def session_info():
     if current_user.is_authenticated:

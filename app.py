@@ -4,19 +4,30 @@ from flask_cors import CORS
 from flask_login import LoginManager, login_required, current_user
 from flask_mail import Mail, Message
 from flask_migrate import Migrate
+from flask_session import Session
 from dotenv import load_dotenv
 import openai
 
-# Load environment variables
+# === Load environment variables ===
 load_dotenv()
 
-# === Import extensions ===
+# === Import extensions and models ===
 from extensions import db, login_manager, oauth, register_oauth_clients
 from models import User
 
 # === Initialize Flask app ===
 app = Flask(__name__, instance_relative_config=True)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'devkey')
+
+# === Session & Cookies Configuration (Fixes Google OAuth CSRF error) ===
+app.config['SESSION_TYPE'] = 'filesystem'
+app.config['SESSION_PERMANENT'] = False
+app.config['SESSION_USE_SIGNER'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'None'  # ✅ Required for Google OAuth
+app.config['SESSION_COOKIE_SECURE'] = True       # ✅ Required when SameSite=None
+app.config['SESSION_COOKIE_DOMAIN'] = ".ecouter.systems"  # ✅ Optional but helps with subdomains
+
+Session(app)
 
 # === Database configuration ===
 db_path = os.path.join(app.instance_path, 'ecouter.db')
@@ -30,8 +41,6 @@ app.config['MAIL_USE_TLS'] = True
 app.config['MAIL_USERNAME'] = os.getenv('SMTP_USERNAME')
 app.config['MAIL_PASSWORD'] = os.getenv('SMTP_PASSWORD')
 app.config['MAIL_DEFAULT_SENDER'] = os.getenv('FROM_EMAIL')
-
-# === Flask-Mail Init ===
 mail = Mail(app)
 
 # === Google OAuth ===
@@ -41,10 +50,6 @@ app.config['GOOGLE_CLIENT_SECRET'] = os.getenv("GOOGLE_CLIENT_SECRET")
 # === OpenAI API ===
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# === Session & cookies ===
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['SESSION_COOKIE_SECURE'] = False
-
 # === Init extensions ===
 db.init_app(app)
 login_manager.init_app(app)
@@ -52,16 +57,18 @@ oauth.init_app(app)
 register_oauth_clients(app)
 migrate = Migrate(app, db)
 
-# === Enable CORS ===
-CORS(app, origins=["http://localhost:3000"], supports_credentials=True)
+# === Enable CORS for frontend ===
+frontend_origin = os.getenv("FRONTEND_URL", "https://ecouter.systems")
+app.config["FRONTEND_URL"] = frontend_origin
+CORS(app, origins=[frontend_origin], supports_credentials=True)
 
-# === Login Manager Loader ===
+# === Login manager user loader ===
 @login_manager.user_loader
 def load_user(user_id):
     with current_app.app_context():
         return db.session.get(User, int(user_id))
 
-# === Ensure folders & DB ===
+# === Create folders & DB if not present ===
 with app.app_context():
     os.makedirs(app.instance_path, exist_ok=True)
     os.makedirs("uploads", exist_ok=True)
@@ -78,7 +85,7 @@ with app.app_context():
         except Exception as e:
             print("❌ Failed to apply schema:", e)
 
-# === Send Email Function ===
+# === Utility: Send email ===
 def send_email(subject, recipient, body):
     try:
         msg = Message(subject=subject, recipients=[recipient], body=body)
@@ -97,7 +104,6 @@ from routes.dashboard import dashboard_bp
 from routes.projects import projects_bp
 from routes.tags import tags_bp
 
-# === Register Blueprints ===
 app.register_blueprint(auth_bp)
 app.register_blueprint(profile_bp)
 app.register_blueprint(transcription_bp)
@@ -107,12 +113,11 @@ app.register_blueprint(dashboard_bp)
 app.register_blueprint(projects_bp)
 app.register_blueprint(tags_bp)
 
-# === Serve avatar files ===
+# === Serve static assets ===
 @app.route('/avatars/<path:filename>')
 def serve_avatar(filename):
     return send_from_directory('avatars', filename)
 
-# === Serve uploaded audio ===
 @app.route('/uploads/<path:filename>')
 def serve_audio_file(filename):
     return send_from_directory('uploads', filename)
@@ -164,7 +169,7 @@ def test_email():
     )
     return jsonify({"message": "Test email sent!"})
 
-# === AI Support Assistant Endpoint ===
+# === AI Support Assistant ===
 @app.route('/api/support', methods=['POST'])
 def support_chat():
     data = request.json
@@ -190,11 +195,11 @@ def support_chat():
             "reply": "Assistant is currently unavailable. Please email support."
         }), 200
 
-# === Root route ===
+# === Root ===
 @app.route('/')
 def home():
     return jsonify({"message": "Écouter backend is running."})
 
-# === Run App for Render ===
+# === Run Dev Server ===
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=10000)
+    app.run(debug=True)
